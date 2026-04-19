@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>치아바타 물품 재고 관리</title>
+  <meta name="inventory-api-base" content="">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Shared Inventory Workspace</p>
+        <h1>치아바타 물품 재고 관리</h1>
+        <p class="hero-copy">
+          재고, 거래처, 발주서를 한 화면에서 같이 관리할 수 있는 공유형 웹 앱입니다.
+          여러 사람이 같은 데이터를 보면서 품목 수정, 재고 차감/추가, 거래처 연결, 부족 재고 발주까지 함께 처리할 수 있습니다.
+        </p>
+      </div>
+
+      <div class="hero-side">
+        <div class="hero-actions">
+          <button id="add-item-button" class="button button-primary">품목 추가</button>
+          <button id="manage-orders-button" class="button button-secondary">발주 관리</button>
+          <button id="manage-vendors-button" class="button button-secondary">거래처 관리</button>
+          <label class="button button-secondary file-button" for="import-file-input">엑셀 업로드</label>
+          <input id="import-file-input" type="file" accept=".xlsx,.csv" hidden>
+          <a id="export-button" class="button button-secondary" href="/api/export.csv">엑셀 다운로드</a>
+          <button id="print-button" class="button button-secondary">출력</button>
+        </div>
+
+        <div id="session-panel" class="session-panel hidden">
+          <div class="user-card">
+            <span class="user-card-label">현재 사용자</span>
+            <strong id="current-user-name">-</strong>
+            <span id="current-user-role" class="user-role-badge">-</span>
+          </div>
+          <div class="session-actions">
+            <button id="manage-users-button" class="button button-ghost hidden">사용자 관리</button>
+            <button id="change-password-button" class="button button-ghost">비밀번호 변경</button>
+            <button id="logout-button" class="button button-ghost">로그아웃</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="app-content" class="dashboard">
+      <section class="card summary-grid">
+        <div class="summary-card">
+          <span class="summary-label">전체 품목</span>
+          <strong id="summary-total-items">0</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">부족 품목</span>
+          <strong id="summary-low-stock">0</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">전체 재고 합계</span>
+          <strong id="summary-total-stock">0</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">거래처 수</span>
+          <strong id="summary-total-vendors">0</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">발주 대기</span>
+          <strong id="summary-draft-orders">0</strong>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">최근 수정</span>
+          <strong id="summary-updated-at">-</strong>
+        </div>
+      </section>
+
+      <section class="card controls-card">
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <label class="search-box" for="search-input">
+              <span>검색</span>
+              <input id="search-input" type="search" placeholder="물품명, 거래처, 위치, 주문단위로 검색">
+            </label>
+          </div>
+          <div class="toolbar-group toolbar-toggle">
+            <label class="toggle-pill">
+              <input id="low-stock-only" type="checkbox">
+              <span>부족 품목만 보기</span>
+            </label>
+            <button id="reload-button" class="button button-ghost">새로고침</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <section class="card inventory-card">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Inventory</p>
+              <h2>재고 현황</h2>
+            </div>
+            <span id="item-count-badge" class="section-badge">0개</span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="inventory-table">
+              <thead>
+                <tr id="inventory-head-row"></tr>
+              </thead>
+              <tbody id="inventory-body"></tbody>
+            </table>
+          </div>
+
+          <div id="empty-state" class="empty-state hidden">
+            등록된 품목이 없습니다. 상단의 <strong>품목 추가</strong> 버튼으로 첫 재고를 등록해 보세요.
+          </div>
+        </section>
+
+        <aside class="card activity-card">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Activity</p>
+              <h2>최근 작업 기록</h2>
+            </div>
+          </div>
+          <ul id="activity-list" class="activity-list"></ul>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-card">
+      <p class="section-kicker">Login Required</p>
+      <h2>재고관리 시스템 로그인</h2>
+      <p class="auth-copy">
+        등록된 계정으로 로그인해야 재고, 거래처, 발주서를 조회하고 수정할 수 있습니다.
+        최초 접속 시 기본 관리자 계정 정보는 README에 정리되어 있습니다.
+      </p>
+      <form id="login-form" class="auth-form">
+        <label class="field">
+          <span class="field-label">아이디</span>
+          <input name="username" type="text" placeholder="admin" required>
+        </label>
+        <label class="field">
+          <span class="field-label">비밀번호</span>
+          <input name="password" type="password" placeholder="비밀번호 입력" required>
+        </label>
+        <button type="submit" class="button button-primary auth-submit">로그인</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="item-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="item"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <div>
+          <p class="section-kicker">Item Editor</p>
+          <h2 id="item-modal-title">품목 추가</h2>
+        </div>
+        <button class="icon-button" data-close-modal="item" aria-label="닫기">×</button>
+      </div>
+      <form id="item-form" class="form-grid"></form>
+      <div class="modal-actions">
+        <button type="button" class="button button-ghost" data-close-modal="item">취소</button>
+        <button type="submit" form="item-form" class="button button-primary">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="adjust-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="adjust"></div>
+    <div class="modal-panel narrow">
+      <div class="modal-head">
+        <div>
+          <p class="section-kicker">Stock Adjustment</p>
+          <h2 id="adjust-modal-title">재고 조정</h2>
+        </div>
+        <button class="icon-button" data-close-modal="adjust" aria-label="닫기">×</button>
+      </div>
+      <form id="adjust-form" class="form-grid single-column">
+        <label class="field">
+          <span class="field-label">기준 방식</span>
+          <select id="adjust-mode" name="mode">
+            <option value="add">현재 재고에 추가</option>
+            <option value="subtract">현재 재고에서 차감</option>
+            <option value="set">실사 재고값으로 설정</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">수량</span>
+          <input id="adjust-amount" name="amount" type="number" min="0" step="1" value="1" required>
+        </label>
+        <label class="field">
+          <span class="field-label">사유</span>
+          <select id="adjust-reason" name="reason">
+            <option value="usage">사용</option>
+            <option value="restock">입고</option>
+            <option value="stock_check">재고 실사</option>
+            <option value="manual">기타</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">메모</span>
+          <textarea id="adjust-note" name="note" rows="3" placeholder="예: 오전 생산용 6개 사용"></textarea>
+        </label>
+      </form>
+      <div class="modal-actions">
+        <button type="button" class="button button-ghost" data-close-modal="adjust">취소</button>
+        <button type="submit" form="adjust-form" class="button button-primary">반영</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="password-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="password"></div>
+    <div class="modal-panel narrow">
+      <div class="modal-head">
+        <div>
+          <p class="section-kicker">Password</p>
+          <h2>비밀번호 변경</h2>
+        </div>
+        <button class="icon-button" data-close-modal="password" aria-label="닫기">×</button>
+      </div>
+      <form id="password-form" class="form-grid single-column">
+        <label class="field">
+          <span class="field-label">현재 비밀번호</span>
+          <input name="current_password" type="password" required>
+        </label>
+        <label class="field">
+          <span class="field-label">새 비밀번호</span>
+          <input name="new_password" type="password" minlength="6" required>
+        </label>
+        <label class="field">
+          <span class="field-label">새 비밀번호 확인</span>
+          <input name="confirm_password" type="password" minlength="6" required>
+        </label>
+      </form>
+      <div class="modal-actions">
+        <button type="button" class="button button-ghost" data-close-modal="password">취소</button>
+        <button type="submit" form="password-form" class="button button-primary">변경</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="users-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="users"></div>
+    <div class="modal-panel wide">
+      <div class="modal-head">
+        <div>
+          <p class="section-kicker">Admin</p>
+          <h2>사용자 관리</h2>
+        </div>
+        <button class="icon-button" data-close-modal="users" aria-label="닫기">×</button>
+      </div>
+
+      <section class="user-management-grid">
+        <div class="user-create-card">
+          <h3>새 사용자 추가</h3>
+          <form id="user-create-form" class="form-grid single-column">
+            <label class="field">
+              <span class="field-label">아이디</span>
+              <input name="username" type="text" placeholder="worker01" required>
+            </label>
+            <label class="field">
+              <span class="field-label">이름</span>
+              <input name="display_name" type="text" placeholder="홍길동" required>
+            </label>
+            <label class="field">
+              <span class="field-label">권한</span>
+              <select name="role">
+                <option value="editor">editor</option>
+                <option value="viewer">viewer</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">초기 비밀번호</span>
+              <input name="password" type="text" minlength="6" placeholder="6자 이상" required>
+            </label>
+            <button type="submit" class="button button-primary">사용자 생성</button>
+          </form>
+        </div>
+
+        <div class="user-list-card">
+          <div class="section-head compact">
+            <div>
+              <p class="section-kicker">User List</p>
+              <h3>등록된 사용자</h3>
+            </div>
+          </div>
+          <div id="user-list" class="user-list"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="vendors-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="vendors"></div>
+    <div class="modal-panel wide">
+      <div class="modal-head">
+        <div>
+          <p class="section-kicker">Vendors</p>
+          <h2>거래처 관리</h2>
+        </div>
+        <button class="icon-button" data-close-modal="vendors" aria-label="닫기">×</button>
+      </div>
+
+      <section class="vendor-management-grid">
+        <div class="vendor-create-card">
+          <h3>새 거래처 추가</h3>
+          <form id="vendor-create-form" class="form-grid single-column">
+            <label class="field">
+              <span class="field-label">거래처명</span>
+              <input name="name" type="text" placeholder="예: 제일포장" required>
+            </label>
+            <label class="field">
+              <span class="field-label">담당자명</span>
+              <input name="contact_name" type="text" placeholder="예: 김담당">
+            </label>
+            <label class="field">
+              <span class="field-label">전화번호</span>
+              <input name="phone" type="text" placeholder="예: 010-0000-0000">
+            </label>
+            <label class="field">
+              <span class="field-label">이메일</span>
+              <input name="email" type="email" placeholder="예: vendor@example.com">
+            </label>
+            <label class="field">
+              <span class="field-label">메모</span>
+              <textarea name="notes" rows="3" placeholder="예: 매주 화요일 오전 입고"></textarea>
+            </label>
+            <button type="submit" class="button button-primary">거래처 생성</button>
+          </form>
+        </div>
+
+        <div class="vendor-list-card">
+          <div class="section-head compact">
+            <div>
+              <p class="section-kicker">Vendor List</p>
+              <h3>등록된 거래처</h3>
+            </div>
+          </div>
+          <div id="vendor-list" class="vendor-list"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="orders-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="orders"></div>
+    <div class="modal-panel extra-wide">
+      <div class="modal-head">
+        <div>
+          <p class="section-kicker">Purchase Orders</p>
+          <h2>발주 관리</h2>
+        </div>
+        <button class="icon-button" data-close-modal="orders" aria-label="닫기">×</button>
+      </div>
+
+      <section class="orders-grid">
+        <div class="order-candidates-card">
+          <div class="section-head compact">
+            <div>
+              <p class="section-kicker">Candidates</p>
+              <h3>부족 재고 발주 후보</h3>
+            </div>
+          </div>
+          <div id="order-candidate-groups" class="order-candidate-groups"></div>
+        </div>
+
+        <div class="purchase-orders-card">
+          <div class="section-head compact">
+            <div>
+              <p class="section-kicker">Orders</p>
+              <h3>등록된 발주서</h3>
+            </div>
+          </div>
+          <div id="purchase-order-list" class="purchase-order-list"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="./config.js"></script>
+  <script src="./mock-api.js"></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>
