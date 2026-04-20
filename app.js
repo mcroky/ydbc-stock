@@ -162,7 +162,7 @@ async function loadConfig() {
 
 async function restoreSession() {
   const payload = await api("/api/auth/me", {}, { allowUnauthorized: true, suppressAuthToast: true });
-  if (payload?.authenticated && payload.user) {
+  if (payload?.user) {
     setCurrentUser(payload.user);
     await afterLogin();
     return;
@@ -326,20 +326,22 @@ function renderItems() {
         .filter((field) => field.key !== "name")
         .map((field) => `<td data-label="${escapeAttribute(inventoryColumnLabel(field.key))}">${renderFieldValue(item, field)}</td>`)
         .join("");
-      const actions = canEdit
-        ? `
-            <div class="quick-adjust">
-              <button class="mini-button" data-action="quick-subtract" data-item-id="${item.id}">-차감</button>
-              <button class="mini-button" data-action="quick-add" data-item-id="${item.id}">+추가</button>
-              <input id="quick-${item.id}" type="number" min="1" step="1" value="1" aria-label="빠른 조정 수량">
-              <button class="mini-button" data-action="adjust" data-item-id="${item.id}">상세 조정</button>
-            </div>
-            <div class="inline-actions">
-              <button class="mini-button" data-action="edit" data-item-id="${item.id}">수정</button>
-              <button class="mini-button mini-button-danger" data-action="delete" data-item-id="${item.id}">삭제</button>
-            </div>
-          `
-        : `<span class="item-sub">보기 전용 계정입니다.</span>`;
+const actions = canEdit
+  ? `
+      <div class="actions-stack">
+        <div class="quick-adjust">
+          <button class="mini-button" data-action="quick-subtract" data-item-id="${item.id}">-차감</button>
+          <button class="mini-button" data-action="quick-add" data-item-id="${item.id}">+추가</button>
+          <input id="quick-${item.id}" type="number" min="1" step="1" value="1" aria-label="빠른 조정 수량">
+        </div>
+        <div class="inline-actions">
+          <button class="mini-button" data-action="adjust" data-item-id="${item.id}">상세 조정</button>
+          <button class="mini-button" data-action="edit" data-item-id="${item.id}">수정</button>
+          <button class="mini-button mini-button-danger" data-action="delete" data-item-id="${item.id}">삭제</button>
+        </div>
+      </div>
+    `
+  : `<span class="item-sub">보기 전용 계정입니다.</span>`;
 
       return `
         <tr class="inventory-row ${item.is_low_stock ? "is-low-stock" : ""}">
@@ -378,23 +380,20 @@ function renderActivities() {
 
   elements.activityList.innerHTML = state.activities
     .map((activity) => {
-      const delta = Number(activity.delta || 0);
-      const deltaClass = delta > 0 ? "delta-plus" : delta < 0 ? "delta-minus" : "";
-      const deltaText = Number.isFinite(delta)
-        ? delta > 0
-          ? `+${delta}`
-          : `${delta}`
-        : "-";
+      const title = activity.action || "작업";
+      const actor = activity.user_name || "-";
+      const itemLabel = activity.item_name || `ID ${activity.item_id ?? "-"}`;
+      const details = activity.details || "-";
 
       return `
         <li class="activity-item">
           <div class="activity-title">
-            <strong>${escapeHtml(activity.message || "-")}</strong>
-            <span class="delta-pill ${deltaClass}">${escapeHtml(deltaText)}</span>
+            <strong>${escapeHtml(title)}</strong>
           </div>
           <div class="activity-meta">
-            작업유형: ${escapeHtml(activity.type || "-")}<br>
-            처리자: ${escapeHtml(activity.actor_name || "-")}<br>
+            품목: ${escapeHtml(itemLabel)}<br>
+            상세: ${escapeHtml(details)}<br>
+            처리자: ${escapeHtml(actor)}<br>
             ${formatDateTime(activity.created_at)}
           </div>
         </li>
@@ -499,9 +498,14 @@ function renderVendors() {
   elements.vendorList.innerHTML = state.vendors
     .map((vendor) => {
       const readonly = canEdit ? "" : "disabled";
-      const saveButton = canEdit
-        ? `<button class="button button-secondary small-button" data-action="save-vendor" data-vendor-id="${vendor.id}">저장</button>`
-        : "";
+		const actionButtons = canEdit
+		  ? `
+			  <div class="inline-actions">
+				<button class="button button-secondary small-button" data-action="save-vendor" data-vendor-id="${vendor.id}">저장</button>
+				<button class="button button-ghost small-button" data-action="delete-vendor" data-vendor-id="${vendor.id}">삭제</button>
+			  </div>
+			`
+		  : "";
       return `
         <div class="vendor-row" data-vendor-id="${vendor.id}">
           <div class="vendor-row-grid">
@@ -533,10 +537,10 @@ function renderVendors() {
               <textarea data-field="notes" rows="3" ${readonly}>${escapeHtml(vendor.notes || "")}</textarea>
             </label>
           </div>
-          <div class="user-row-footer">
-            <span class="item-sub">최종 수정 ${formatDateTime(vendor.updated_at)}</span>
-            ${saveButton}
-          </div>
+			<div class="user-row-footer">
+			  <span class="item-sub">최종 수정 ${formatDateTime(vendor.updated_at)}</span>
+			  ${actionButtons}
+			</div>
         </div>
       `;
     })
@@ -1011,16 +1015,40 @@ async function handleUserListClick(event) {
   await loadUsers();
 }
 
+
+
 async function handleVendorListClick(event) {
-  const button = event.target.closest("[data-action='save-vendor']");
-  if (!button) {
+  const saveButton = event.target.closest("[data-action='save-vendor']");
+  const deleteButton = event.target.closest("[data-action='delete-vendor']");
+
+  if (!saveButton && !deleteButton) {
     return;
   }
+
+  const button = saveButton || deleteButton;
   const row = button.closest(".vendor-row");
   if (!row) {
     return;
   }
+
   const vendorId = Number(button.dataset.vendorId);
+
+  if (deleteButton) {
+    const vendorName = row.querySelector("[data-field='name']")?.value?.trim() || `거래처 #${vendorId}`;
+    const confirmed = window.confirm(`"${vendorName}" 거래처를 삭제하시겠습니까?`);
+    if (!confirmed) {
+      return;
+    }
+
+    await api(`/api/vendors/${vendorId}`, {
+      method: "DELETE",
+    });
+
+    showToast("거래처를 삭제했습니다.");
+    await refreshData();
+    return;
+  }
+
   const payload = {
     name: row.querySelector("[data-field='name']").value.trim(),
     contact_name: row.querySelector("[data-field='contact_name']").value.trim(),
@@ -1029,14 +1057,17 @@ async function handleVendorListClick(event) {
     notes: row.querySelector("[data-field='notes']").value.trim(),
     is_active: row.querySelector("[data-field='is_active']").value === "true",
   };
+
   await api(`/api/vendors/${vendorId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
   showToast("거래처 정보를 저장했습니다.");
   await refreshData();
 }
+
 
 async function handleOrderCandidateClick(event) {
   const button = event.target.closest("[data-action='create-order']");
@@ -1125,7 +1156,7 @@ async function submitStockAdjustment(itemId, amount, reason, note) {
   await api(`/api/items/${itemId}/adjust`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ amount, reason, note }),
+    body: JSON.stringify({ adjustment: amount, reason, note }),
   });
   showToast("재고를 반영했습니다.");
   await refreshData();

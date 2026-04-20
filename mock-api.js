@@ -465,6 +465,12 @@ function csvExport(db) {
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function (input, init) {
     const url = typeof input === "string" ? input : input.url;
+
+	// 추가할 내용: 로그인/로그아웃/세션 관련이 "아니면" 실제 서버(Supabase)로 통신하게 함
+    if (!url.includes('/api/login') && !url.includes('/api/logout') && !url.includes('/api/session')) {
+        return nativeFetch(input, init); 
+    }
+
     const parsed = new URL(url, window.location.origin);
     if (parsed.pathname.startsWith("/api/")) {
       return handleApi(parsed.toString(), init);
